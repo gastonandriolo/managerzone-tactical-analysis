@@ -1,8 +1,12 @@
 // ==UserScript==
-// @name         ManagerZone - Análisis táctico
-// @namespace    local.managerzone.tactical
-// @version      1.2.0
-// @description  Análisis táctico bilingüe, tiempos, sustituciones y XML de formación
+// @name         ManagerZone - Tactical Analysis
+// @namespace    https://github.com/gastonandriolo/managerzone-tactical-analysis
+// @version      1.2.1
+// @description  A ManagerZone userscript for match analysis, tactical changes, goals, substitutions and formation XML generation.
+// @homepageURL  https://github.com/gastonandriolo/managerzone-tactical-analysis
+// @supportURL   https://github.com/gastonandriolo/managerzone-tactical-analysis/issues
+// @downloadURL  https://raw.githubusercontent.com/gastonandriolo/managerzone-tactical-analysis/main/managerzone-tactical-analysis.user.js
+// @updateURL    https://raw.githubusercontent.com/gastonandriolo/managerzone-tactical-analysis/main/managerzone-tactical-analysis.user.js
 // @match        https://www.managerzone.com/*
 // @run-at       document-idle
 // @grant        none
