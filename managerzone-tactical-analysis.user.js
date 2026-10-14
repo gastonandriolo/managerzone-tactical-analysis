@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ManagerZone - Tactical Analysis
 // @namespace    https://github.com/gastonandriolo/managerzone-tactical-analysis
-// @version      1.2.1
+// @version      1.3.0
 // @description  A ManagerZone userscript for match analysis, tactical changes, goals, substitutions and formation XML generation.
 // @homepageURL  https://github.com/gastonandriolo/managerzone-tactical-analysis
 // @supportURL   https://github.com/gastonandriolo/managerzone-tactical-analysis/issues
@@ -22,6 +22,7 @@
     let busy = false;
     let observer = null;
     let currentLang = 'es';
+    let myFormations = [];
 
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -191,6 +192,11 @@
             background: #edf0f3;
           }
 
+          #${PANEL_ID} select {
+            padding: 7px 10px;
+            margin: 4px 6px 8px 0;
+          }
+
           #${PANEL_ID} .mz-ta-error {
             color: #a21d1d;
             font-weight: bold;
@@ -355,6 +361,10 @@
                 : (currentLang === 'en' ? 'Copy XML' : 'Copiar XML');
         });
 
+        panel.querySelectorAll('option[data-es]').forEach(o => {
+            o.textContent = currentLang === 'en' ? o.dataset.en : o.dataset.es;
+        });
+
         const message = panel.querySelector('.mz-ta-message');
 
         if (message && message.dataset.esMessage !== undefined) {
@@ -516,6 +526,277 @@
     const toY = (v, home) => home
         ? Math.round(-0.3073207154 * v + 315.9278777381)
         : Math.round(0.3070644902 * v + 9.2794889414);
+
+    // Escala de las formaciones guardadas del usuario (JSON de la pagina de tacticas -> XML).
+    // PROVISORIA: estimada con un solo jugador. Reemplazar con los valores de calibracion.
+    const OWN_SCALE = { xa: 0.2143, xb: -3.21, ya: 0.3283, yb: -2.2 };
+    const ownX = v => Math.round(OWN_SCALE.xa * v + OWN_SCALE.xb);
+    const ownY = v => Math.round(OWN_SCALE.ya * v + OWN_SCALE.yb);
+
+    // Posiciones fijas del banco en el XML (x = 228). La y depende del tipo de suplente.
+    const SUB_SLOTS = {
+        'subst gk':  { pos: 'subgoalie', y: 117 },
+        'subst def': { pos: 'sub', y: 140 },
+        'subst mid': { pos: 'sub', y: 163 },
+        'subst att': { pos: 'sub', y: 186 },
+        'subst ext': { pos: 'sub', y: 209 }
+    };
+
+
+    function getMyTacticRules(html) {
+        const parsed = new DOMParser().parseFromString(html, 'text/html');
+        const rules = {};
+
+        for (const form of parsed.querySelectorAll(
+            '#tactic_rules form.tactics_rule'
+        )) {
+            const match = form.id.match(/^tactic_rule_([a-z])_(\d+)$/);
+            if (!match) continue;
+
+            const slot = match[1];
+            const fields = {};
+
+            for (const el of form.querySelectorAll(
+                'input[name], select[name], textarea[name]'
+            )) {
+                if (el.type === 'checkbox' || el.type === 'radio') {
+                    fields[el.name] = el.checked ? 'true' : 'false';
+                } else {
+                    fields[el.name] = el.value;
+                }
+            }
+
+            if (!rules[slot]) rules[slot] = [];
+
+            rules[slot].push(fields);
+        }
+
+        return rules;
+    }
+
+    // Lee los slots de formacion guardados del usuario (pagina de tacticas).
+    // Devuelve [{ id: 'b', name: 'Ext52D', xml: '<SoccerTactics>...' }, ...]
+    // Solo incluye slots completos (portero + 10 jugadores de campo).
+    async function getMyFormations() {
+        try {
+            const r = await fetch(
+                '/?p=tactics&sport=soccer',
+                { credentials: 'same-origin' }
+            );
+
+            if (!r.ok) return [];
+
+            const html = await r.text();
+            const tacticRules = getMyTacticRules(html);
+            const key = '"TeamTactics":';
+            const start = html.indexOf(key);
+
+            if (start === -1) return [];
+
+            // Extrae el objeto JSON balanceando llaves
+            const i = start + key.length;
+            let depth = 0;
+            let inStr = false;
+            let j = i;
+
+            for (; j < html.length; j++) {
+                const c = html[j];
+
+                if (inStr) {
+                    if (c === '\\') j++;
+                    else if (c === '"') inStr = false;
+                    continue;
+                }
+
+                if (c === '"') inStr = true;
+                else if (c === '{') depth++;
+                else if (c === '}' && --depth === 0) {
+                    j++;
+                    break;
+                }
+            }
+
+            const tactics = [].concat(
+                JSON.parse(html.slice(i, j)).Tactic || []
+            );
+
+            const namesMatch = html.match(
+                /userTacticsNames\s*=\s*new Array\(([^)]*)\)/
+            );
+
+            const names = namesMatch
+                ? [...namesMatch[1].matchAll(/"([^"]*)"/g)].map(m => m[1])
+                : [];
+
+            const letters = 'abcdefghij';
+            const keys = ['x', 'y', 'x1', 'y1', 'x2', 'y2'];
+            const result = [];
+
+            for (const t of tactics) {
+                const a = t['@attributes'];
+                const idx = letters.indexOf(a.name);
+
+                if (idx < 0) continue;
+
+                const players = []
+                    .concat(t.TacticPlayer || [])
+                    .map(p => p['@attributes']);
+
+                const gk = players.find(p => p.pos === 'gk');
+
+                const field = players
+                    .filter(p =>
+                        p.pos === 'on field' &&
+                        keys.every(k => p[k] !== '')
+                    )
+                    .slice(0, 10);
+
+                if (!gk || field.length < 10) continue;
+
+                const bySlot = (p1, p2) =>
+                    Number(p1.penaltyOrder) - Number(p2.penaltyOrder);
+
+                const subs = players.filter(p => SUB_SLOTS[p.pos]);
+
+                let xml =
+                    '<?xml version="1.0" ?>\r\n<SoccerTactics>\r\n' +
+                    `\t<Team tactics="${a.tactics}" ` +
+                    `playstyle="${a.playstyle}" ` +
+                    `aggression="${a.aggression}"` +
+                    (a.captainPlayerId && a.captainPlayerId !== '0'
+                        ? ` captain="${a.captainPlayerId}"`
+                        : '') +
+                    ' />\r\n';
+
+                for (const p of [...field].sort(bySlot)) {
+                    const c = keys.map(k => k.startsWith('x')
+                        ? ownX(Number(p[k]))
+                        : ownY(Number(p[k])));
+
+                    xml +=
+                        `\t<Pos pos="normal" pid="${p.playerId}" ` +
+                        `x="${c[0]}" y="${c[1]}" ` +
+                        `x1="${c[2]}" y1="${c[3]}" ` +
+                        `x2="${c[4]}" y2="${c[5]}" ` +
+                        `pt="${p.penaltyOrder}" fk="${p.freekickOrder}" />\r\n`;
+                }
+
+                for (const p of [...subs].sort(bySlot)) {
+                    const sl = SUB_SLOTS[p.pos];
+
+                    xml +=
+                        `\t<Sub pos="${sl.pos}" pid="${p.playerId}" ` +
+                        `x="228" y="${sl.y}" x1="228" y1="${sl.y}" ` +
+                        `x2="228" y2="${sl.y}" ` +
+                        `pt="${p.penaltyOrder}" fk="${p.freekickOrder}" />\r\n`;
+                }
+
+                xml +=
+                    `\t<Pos pos="goalie" pid="${gk.playerId}" ` +
+                    'x="103" y="315" x1="103" y1="315" ' +
+                    `x2="103" y2="315" pt="${gk.penaltyOrder}" ` +
+                    `fk="${gk.freekickOrder}" />\r\n`;
+
+
+                for (const rule of (tacticRules[a.name] || [])) {
+                    const attrs = Object.entries(rule)
+                        .map(([key, value]) =>
+                            ` ${key}="${String(value)
+                                .replace(/&/g, '&amp;')
+                                .replace(/"/g, '&quot;')
+                                .replace(/</g, '&lt;')
+                                .replace(/>/g, '&gt;')}"`
+                        )
+                        .join('');
+
+                    xml += `\t<TacticRule${attrs} />\r\n`;
+                }
+
+                xml += '</SoccerTactics>\r\n';
+
+                result.push({
+                    id: a.name,
+                    name: names[idx] || a.name.toUpperCase(),
+                    xml
+                });
+
+            }
+
+            console.info(
+                '[MZ Tactical] Formaciones propias completas:',
+                result.map(f => `${f.id}=${f.name}`).join(', ') || 'ninguna'
+            );
+
+            return result;
+        } catch (e) {
+            console.warn(
+                '[MZ Tactical] Error obteniendo formaciones propias:',
+                e
+            );
+
+            return [];
+        }
+    }
+
+    // Combina la formacion clonada con una formacion propia (base).
+    // target: 0 = inicial (x,y), 1 = alternativa 1 (x1,y1), 2 = alternativa 2 (x2,y2)
+    // Solo cambia el juego de coordenadas elegido; el resto queda como en la base.
+    function mergeXml(cloneXml, baseXml, target) {
+        const parse = s => new DOMParser().parseFromString(s, 'text/xml');
+        const clone = parse(cloneXml);
+        const base = parse(baseXml);
+
+        if (base.querySelector('parsererror')) return cloneXml;
+
+        const suffix = ['', '1', '2'][target];
+        const kx = 'x' + suffix;
+        const ky = 'y' + suffix;
+
+        const outfield = doc => Array.from(doc.getElementsByTagName('Pos'))
+            .filter(p => p.getAttribute('pos') !== 'goalie');
+
+        const basePos = outfield(base);
+        const clonePos = outfield(clone);
+
+        // Empareja cada posicion clonada con el jugador propio que ya estaba mas cerca.
+        const pairs = [];
+
+        basePos.forEach((b, bi) => clonePos.forEach((c, ci) => {
+            const dx = b.getAttribute(kx) - c.getAttribute('x');
+            const dy = b.getAttribute(ky) - c.getAttribute('y');
+            pairs.push({ bi, ci, d: dx * dx + dy * dy });
+        }));
+
+        pairs.sort((a, b) => a.d - b.d);
+
+        const usedB = new Set();
+        const usedC = new Set();
+
+        for (const { bi, ci } of pairs) {
+            if (usedB.has(bi) || usedC.has(ci)) continue;
+
+            usedB.add(bi);
+            usedC.add(ci);
+
+            basePos[bi].setAttribute(kx, clonePos[ci].getAttribute('x'));
+            basePos[bi].setAttribute(ky, clonePos[ci].getAttribute('y'));
+        }
+
+        // Tactica, estilo y agresividad: se clonan del rival solo si el destino es
+        // la formacion inicial. Con alternativa 1 o 2 se conserva la del usuario.
+        const bt = base.getElementsByTagName('Team')[0];
+        const ct = clone.getElementsByTagName('Team')[0];
+
+        if (target === 0 && bt && ct) {
+            ['tactics', 'playstyle', 'aggression'].forEach(a =>
+                bt.setAttribute(a, ct.getAttribute(a)));
+        }
+
+        const body = new XMLSerializer().serializeToString(base)
+            .replace(/^<\?xml[^>]*\?>\s*/, '');
+
+        return '<?xml version="1.0" ?>\r\n' + body;
+    }
 
     async function fetchXml(type, mid) {
         try {
@@ -881,6 +1162,13 @@
             }, 1800);
         };
 
+        const mkOpt = (value, es, en) => {
+            const o = new Option(currentLang === 'en' ? en : es, value);
+            o.dataset.es = es;
+            o.dataset.en = en;
+            return o;
+        };
+
         section.append(
             h,
             pre,
@@ -889,6 +1177,31 @@
             document.createElement('br'),
             copy
         );
+
+        if (myFormations.length) {
+            const slotSel = document.createElement('select');
+            slotSel.add(mkOpt('', 'Copia genérica', 'Generic copy'));
+            myFormations.forEach(f => slotSel.add(new Option(f.name, f.id)));
+
+            const targetSel = document.createElement('select');
+            targetSel.add(mkOpt('0', 'Inicial', 'Initial'));
+            targetSel.add(mkOpt('1', 'Alternativa 1', 'Alternative 1'));
+            targetSel.add(mkOpt('2', 'Alternativa 2', 'Alternative 2'));
+            targetSel.disabled = true;
+
+            const refresh = () => {
+                const f = myFormations.find(x => x.id === slotSel.value);
+                targetSel.disabled = !f;
+                ta.value = f
+                    ? mergeXml(xml, f.xml, Number(targetSel.value))
+                    : xml;
+            };
+
+            slotSel.onchange = refresh;
+            targetSel.onchange = refresh;
+
+            section.append(slotSel, targetSel);
+        }
 
         panel.querySelector('.mz-ta-content').appendChild(section);
     }
@@ -990,6 +1303,7 @@
             }
 
             const pids = await getMyPids();
+            myFormations = await getMyFormations();
             const content = panel.querySelector('.mz-ta-content');
 
             content.replaceChildren();
