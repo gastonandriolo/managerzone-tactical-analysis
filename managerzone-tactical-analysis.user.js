@@ -242,7 +242,7 @@
             [/XML de formación/g, 'Formation XML'],
             [/Copiar XML/g, 'Copy XML'],
             [/Copiado/g, 'Copied'],
-            [/Inicial -> Táctica:/g, 'Initial -> Passing:'],
+            [/Inicial -> Táctica:/g, 'Starting -> Passing:'],
             [/Estilo:/g, 'Mentality:'],
             [/Agresividad:/g, 'Pressing:'],
             [/Vigente:/g, '𝗖𝘂𝗿𝗿𝗲𝗻𝘁 𝘀𝗲𝘁𝘁𝗶𝗻𝗴𝘀:'],
@@ -278,7 +278,7 @@
             [/\boffensive\b/g, 'Attacking'],
             [/\bdefensive\b/g, 'Defensive'],
             [/\baggressive\b/g, 'Committed'],
-            [/\bcautious\b/g, 'Passive'],
+            [/\passive\b/g, 'Passive'],
             [/\bnormal\b/g, 'Normal'],
             [/\btactic\b/g, 'Passing'],
             [/\bplaystyle\b/g, 'Mentality'],
@@ -298,7 +298,7 @@
             [/\boffensive\b/gi, 'Ofensivo'],
             [/\bdefensive\b/gi, 'Defensivo'],
             [/\baggressive\b/gi, 'Agresivo'],
-            [/\bcautious\b/gi, 'Pasivo'],
+            [/\passive\b/gi, 'Pasivo'],
             [/\bnormal\b/gi, 'Normal'],
             [/\btactic\b/gi, 'Táctica'],
             [/\bplaystyle\b/gi, 'Estilo'],
@@ -306,6 +306,21 @@
         ];
 
         if (lang === 'en') {
+            const styleEN = {
+                offensive: 'Attacking',
+                normal: 'Balanced',
+                defensive: 'Defensive',
+                counterattack: 'Balanced'
+            };
+            const mapStyle = v => styleEN[v] || v;
+
+            text = text
+                .replace(/Estilo: (\S+)/g,
+                         (_, v) => `Mentality: ${mapStyle(v)}`)
+                .replace(/\bplaystyle: (\S+) -> (\S+)/g,
+                         (_, a, b) => `Mentality: ${mapStyle(a)} -> ${mapStyle(b)}`)
+                .replace(/Vigente: (\S+) \| (\S+) \| (\S+)/g,
+                         (_, t, p, ag) => `Vigente: ${t} | ${mapStyle(p)} | ${ag}`);
             for (const [pattern, replacement] of replacementsEN) {
                 text = text.replace(pattern, replacement);
             }
