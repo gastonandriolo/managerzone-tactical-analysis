@@ -11,6 +11,22 @@ A bilingual userscript for ManagerZone football matches. It adds a Tactical Anal
 - **Substitutions:** review incoming and outgoing players and available timing information.
 - **Formation XML:** generate XML formation files for both teams and copy the XML to the clipboard.
 - **Match diagnostics:** display information about the available match data and detected events.
+- **Clone another team's tactics using formations already saved in your own account**.
+## Here's how it works:
+1. Choose one of your own formations to use as the base for cloning an opponent's tactic.
+2. Select the opponent's tactic you want to copy.
+3. Choose where to apply the changes: Initial, Alternative 1 or Alternative 2.
+4. The script generates the corresponding XML, ready to copy and paste into the selected tactic.
+
+This means you can modify one specific variant without affecting the others. For example, you can clone a tactic into Alternative 1 of one of your formations while leaving both Initial and Alternative 2 unchanged.
+The **"Generic Copy"** option is also still available. It works as before, copying the tactic across all three variants: Initial, Alternative 1 and Alternative 2.
+
+## What happens to tactical settings and rules?
+- When cloning into Initial, the opponent's tactical settings, playing style and aggression are copied as well.
+- When cloning into Alternative 1 or Alternative 2, the formation is changed, but your existing tactical settings, playing style and aggression are preserved.
+- Tactical rules are always preserved, regardless of which variant you choose as the destination. This includes configured conditions and player substitutions, so you don't need to set up your rules again manually.
+
+In short, you can choose one of your own formations, use another team's tactic as a reference, and decide exactly where to apply it. Your existing settings are preserved where intended, and your other variants remain unchanged unless you choose the Generic Copy option.
 
 The information displayed depends on the data made available by ManagerZone for each match. Results may be incomplete when match data or event information is unavailable.
 
