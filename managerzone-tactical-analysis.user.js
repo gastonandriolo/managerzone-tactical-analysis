@@ -542,13 +542,10 @@
         ? Math.round(-0.3073207154 * v + 315.9278777381)
         : Math.round(0.3070644902 * v + 9.2794889414);
 
-    // Escala de las formaciones guardadas del usuario (JSON de la pagina de tacticas -> XML).
-    // PROVISORIA: estimada con un solo jugador. Reemplazar con los valores de calibracion.
     const OWN_SCALE = { xa: 0.2143, xb: -3.21, ya: 0.3283, yb: -2.2 };
     const ownX = v => Math.round(OWN_SCALE.xa * v + OWN_SCALE.xb);
     const ownY = v => Math.round(OWN_SCALE.ya * v + OWN_SCALE.yb);
 
-    // Posiciones fijas del banco en el XML (x = 228). La y depende del tipo de suplente.
     const SUB_SLOTS = {
         'subst gk':  { pos: 'subgoalie', y: 117 },
         'subst def': { pos: 'sub', y: 140 },
@@ -556,7 +553,6 @@
         'subst att': { pos: 'sub', y: 186 },
         'subst ext': { pos: 'sub', y: 209 }
     };
-
 
     function getMyTacticRules(html) {
         const parsed = new DOMParser().parseFromString(html, 'text/html');
@@ -589,9 +585,6 @@
         return rules;
     }
 
-    // Lee los slots de formacion guardados del usuario (pagina de tacticas).
-    // Devuelve [{ id: 'b', name: 'Ext52D', xml: '<SoccerTactics>...' }, ...]
-    // Solo incluye slots completos (portero + 10 jugadores de campo).
     async function getMyFormations() {
         try {
             const r = await fetch(
@@ -608,7 +601,6 @@
 
             if (start === -1) return [];
 
-            // Extrae el objeto JSON balanceando llaves
             const i = start + key.length;
             let depth = 0;
             let inStr = false;
@@ -753,9 +745,6 @@
         }
     }
 
-    // Combina la formacion clonada con una formacion propia (base).
-    // target: 0 = inicial (x,y), 1 = alternativa 1 (x1,y1), 2 = alternativa 2 (x2,y2)
-    // Solo cambia el juego de coordenadas elegido; el resto queda como en la base.
     function mergeXml(cloneXml, baseXml, target) {
         const parse = s => new DOMParser().parseFromString(s, 'text/xml');
         const clone = parse(cloneXml);
@@ -773,7 +762,6 @@
         const basePos = outfield(base);
         const clonePos = outfield(clone);
 
-        // Empareja cada posicion clonada con el jugador propio que ya estaba mas cerca.
         const pairs = [];
 
         basePos.forEach((b, bi) => clonePos.forEach((c, ci) => {
@@ -797,8 +785,6 @@
             basePos[bi].setAttribute(ky, clonePos[ci].getAttribute('y'));
         }
 
-        // Tactica, estilo y agresividad: se clonan del rival solo si el destino es
-        // la formacion inicial. Con alternativa 1 o 2 se conserva la del usuario.
         const bt = base.getElementsByTagName('Team')[0];
         const ct = clone.getElementsByTagName('Team')[0];
 
@@ -1231,7 +1217,7 @@
         let panel = null;
 
         try {
-            button.textContent = 'Esperando partido…';
+            button.textContent = translateText('Esperando partido…');
 
             const mid = await waitForMatchId(60000);
 
@@ -1243,7 +1229,7 @@
                 return;
             }
 
-            button.textContent = 'Analizando…';
+            button.textContent = translateText('Analizando…');
             panel = createPanel();
 
             const matchLabel = panel.querySelector('.mz-ta-match');
