@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ManagerZone - Tactical Analysis
 // @namespace    https://github.com/gastonandriolo/managerzone-tactical-analysis
-// @version      1.3.0
+// @version      1.4.0
 // @description  A ManagerZone userscript for match analysis, tactical changes, goals, substitutions and formation XML generation.
 // @homepageURL  https://github.com/gastonandriolo/managerzone-tactical-analysis
 // @supportURL   https://github.com/gastonandriolo/managerzone-tactical-analysis/issues
@@ -21,7 +21,22 @@
 
     let busy = false;
     let observer = null;
-    let currentLang = 'es';
+    function detectGameLang() {
+    const candidates = [
+        document.documentElement.lang,
+        document.querySelector('meta[http-equiv="content-language" i]')?.content,
+        document.querySelector('meta[name="language"]')?.content
+    ];
+
+    for (const c of candidates) {
+        const code = String(c || '').trim().toLowerCase().slice(0, 2);
+        if (code) return code === 'es' ? 'es' : 'en';
+    }
+
+    return 'en';
+    }
+
+    let currentLang = detectGameLang();
     let myFormations = [];
 
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -554,6 +569,7 @@
         'subst ext': { pos: 'sub', y: 209 }
     };
 
+
     function getMyTacticRules(html) {
         const parsed = new DOMParser().parseFromString(html, 'text/html');
         const rules = {};
@@ -584,6 +600,7 @@
 
         return rules;
     }
+
 
     async function getMyFormations() {
         try {
@@ -745,6 +762,7 @@
         }
     }
 
+
     function mergeXml(cloneXml, baseXml, target) {
         const parse = s => new DOMParser().parseFromString(s, 'text/xml');
         const clone = parse(cloneXml);
@@ -784,6 +802,7 @@
             basePos[bi].setAttribute(kx, clonePos[ci].getAttribute('x'));
             basePos[bi].setAttribute(ky, clonePos[ci].getAttribute('y'));
         }
+
 
         const bt = base.getElementsByTagName('Team')[0];
         const ct = clone.getElementsByTagName('Team')[0];
