@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ManagerZone - Tactical Analysis
 // @namespace    https://github.com/gastonandriolo/managerzone-tactical-analysis
-// @version      1.4.0
+// @version      1.5.0
 // @description  A ManagerZone userscript for match analysis, tactical changes, goals, substitutions and formation XML generation.
 // @homepageURL  https://github.com/gastonandriolo/managerzone-tactical-analysis
 // @supportURL   https://github.com/gastonandriolo/managerzone-tactical-analysis/issues
@@ -21,6 +21,7 @@
 
     let busy = false;
     let observer = null;
+
     function detectGameLang() {
     const candidates = [
         document.documentElement.lang,
@@ -286,6 +287,7 @@
             [/Etiquetas en Events:/g, 'Tags in Events:'],
             [/Jugadores propios encontrados:/g, 'Own players found:'],
             [/Aviso: algunas posiciones XML tendrán pid=0\./g, 'Warning: some XML positions will have pid=0.'],
+            [/--- EXPULSIÓN ---/g, '--- 𝗥𝗘𝗗 𝗖𝗔𝗥𝗗 ---'],
             [/\bshortpass\b/g, 'Short'],
             [/\blongball\b/g, 'Long'],
             [/\bwings\b/g, 'Wings'],
@@ -306,6 +308,7 @@
             [/--- Cambio (\d+): Táctica ---/g, '--- 𝗖𝗮𝗺𝗯𝗶𝗼 $1: 𝗧𝗮́𝗰𝘁𝗶𝗰𝗮 ---'],
             [/--- Cambio (\d+): Sustitución ---/g, '--- 𝗖𝗮𝗺𝗯𝗶𝗼 $1: 𝗦𝘂𝘀𝘁𝗶𝘁𝘂𝗰𝗶𝗼́𝗻 ---'],
             [/--- Cambio (\d+) ---/g, '--- 𝗖𝗮𝗺𝗯𝗶𝗼 $1 ---'],
+            [/--- EXPULSIÓN ---/g, '--- 𝗘𝗫𝗣𝗨𝗟𝗦𝗜𝗢́𝗡 ---'],
             [/\bshortpass\b/gi, 'Pases Cortos'],
             [/\blongball\b/gi, 'Pases Largos'],
             [/\bwings\b/gi, 'Usar Extremos'],
@@ -892,6 +895,7 @@
                 `(${player.getAttribute('shirtno') || '?'})`;
 
             for (const goal of player.getElementsByTagName('Goal')) {
+
                 goals.push({
                     kind: 'goal',
                     frame: Number(goal.getAttribute('frame')) || 0,
@@ -923,7 +927,40 @@
         return goals;
     }
 
-    function teamInfo(team, isHome, ev, names, goalReport) {
+    function extractRedCards(doc, teams) {
+        if (!doc || !teams || teams.length < 2) return [];
+
+        const cards = [];
+
+        for (const player of doc.getElementsByTagName('Player')) {
+            const playerTeamId = String(player.getAttribute('teamId'));
+            const team = teams.find(t => String(t.getAttribute('id')) === playerTeamId);
+
+            const playerName =
+                  `${player.getAttribute('name') || player.getAttribute('id') || 'Jugador'} ` +
+                  `(${player.getAttribute('shirtno') || '?'})`;
+
+            for (const card of player.getElementsByTagName('Card')) {
+                if (card.getAttribute('type') !== 'red') continue;
+
+                const t = card.getAttribute('time') || '0:0';
+                const [m, sec] = t.split(':');
+
+                cards.push({
+                    kind: 'red',
+                    s: (parseFloat(m) || 0) * 60 + (parseFloat(sec) || 0),
+                    time: t,
+                    clock: card.getAttribute('clock') || '',
+                    playerName,
+                    teamName: team ? team.getAttribute('name') : 'Equipo desconocido'
+                });
+            }
+        }
+
+        return cards;
+    }
+
+    function teamInfo(team, isHome, ev, names, goalReport, redReport) {
         const teamId = String(team.getAttribute('id'));
 
         const secs = t => {
@@ -939,6 +976,24 @@
             const seconds = parseInt(parts[1], 10) || 0;
 
             return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        };
+
+        const clockRefs = [
+            ...ev.subs.map(e => ({
+                t: secs(e.getAttribute('time')),
+                c: secs(e.getAttribute('clock'))
+            })),
+            ...(Array.isArray(goalReport) ? goalReport : []).map(g => ({
+                t: g.s,
+                c: secs(g.clock)
+            }))
+        ].filter(r => r.t > 0 && r.c > 0).sort((a, b) => a.t - b.t);
+
+        const tacticClock = time => {
+            const t = secs(time);
+            const ref = clockRefs.find(r => r.t >= t) || clockRefs[clockRefs.length - 1];
+            const c = Math.max(0, ref ? t - (ref.t - ref.c) : t);
+            return formatTime(`${Math.floor(c / 60)}:${Math.floor(c % 60)}`);
         };
 
         let txt =
@@ -975,6 +1030,10 @@
                 s: Number.isFinite(goal.s) ? goal.s : 0,
                 order: index
             });
+        });
+
+        (Array.isArray(redReport) ? redReport : []).forEach(card => {
+            items.push({ kind: 'red', card, s: card.s });
         });
 
         items.sort((a, b) => a.s - b.s);
@@ -1023,6 +1082,17 @@
                 return;
             }
 
+            if (it.kind === 'red') {
+                const c = it.card;
+
+                txt += `--- EXPULSIÓN ---\n`;
+                txt += `Tiempo: ${formatTime(c.clock || c.time)}\n`;
+                txt += `Equipo: ${c.teamName}\n`;
+                txt += `Jugador: ${c.playerName}\n\n`;
+
+                return;
+            }
+
             changeNumber++;
 
             const e = it.e;
@@ -1033,7 +1103,7 @@
                 const minute = e.getAttribute('minute');
 
                 txt += `--- Cambio ${changeNumber}: Táctica ---\n`;
-                txt += `Tiempo: ${formatTime(e.getAttribute('clock') || e.getAttribute('time'))}\n`;
+                txt += `Tiempo: ${tacticClock(e.getAttribute('time'))}\n`;
                 txt += `${type}: ${state[type] ?? '?'} -> ${val ?? '?'}\n`;
 
                 if (minute) {
@@ -1068,7 +1138,6 @@
         if (!goals.length) {
             txt += 'No se encontraron eventos de gol en el XML.\n';
         }
-
         return txt;
     }
 
@@ -1334,13 +1403,19 @@
                 goals = extractGoals(eventDoc, teams);
             }
 
+            let reds = extractRedCards(xml, teams);
+
+            if (reds.length === 0 && eventDoc !== xml) {
+                reds = extractRedCards(eventDoc, teams);
+            }
+
             teams.slice(0, 2).forEach((team, i) => {
                 const home = i === 0;
 
                 addTeamTab(
                     panel,
                     home ? 'home' : 'away',
-                    teamInfo(team, home, ev, names, goals),
+                    teamInfo(team, home, ev, names, goals, reds),
                     buildXml(team, home, xml, pids),
                     `${home ? 'LOCAL' : 'VISITANTE'}: ` +
                     `${team.getAttribute('name') || team.getAttribute('id')}`
